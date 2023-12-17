@@ -1,7 +1,6 @@
 from __future__ import annotations
-from os import terminal_size
-from turtle import forward
 from typing import List
+import math
 
 class Tensor():
     def __init__(self, data: float, require_grad=False) -> None:
@@ -161,4 +160,4 @@ class PowContext(GradContext):
         if self.t1.require_grad:
             self.next_ctx[0].backward(grad * self.t2.data * (self.t1.data ** (self.t2.data-1)))
         if self.t2.require_grad:
-            self.next_ctx[1].backward(grad * self.t1.data ** (self.t2.data))
+            self.next_ctx[1].backward(grad * self.t1.data ** (self.t2.data) * math.log(self.t1.data))
