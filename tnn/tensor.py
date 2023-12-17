@@ -19,9 +19,9 @@ class Tensor():
     
     def __sub__(self, other: float | Tensor) -> Tensor:
         if isinstance(other, (float, int)):
-            other = Tensor(-other)
-        addCTX = AddContext(self, other)
-        return addCTX.forward()
+            other = Tensor(other)
+        subCTX = SubContext(self, other)
+        return subCTX.forward()
     
     def __mul__(self, other: float | Tensor) -> Tensor:
         if isinstance(other, (float, int)):
@@ -63,7 +63,7 @@ class GradContext():
     
     def update(self) -> None:
         for t in self._tensors:
-            t.data += t.grad
+            t.data -= t.grad
         for c in self.next_ctx:
             c.update()
     
@@ -82,8 +82,9 @@ class AccumulateContext(GradContext):
         return self.t1
     
     def backward(self, grad: float) -> None:
-        if self.t1.require_grad:
-            self.t1.grad += grad
+        if not self.t1.require_grad:
+            return
+        self.t1.grad += grad
 
 
 class AddContext(GradContext):
@@ -93,15 +94,36 @@ class AddContext(GradContext):
         self.t2 = t2
 
     def forward(self) -> Tensor:
-        data = Tensor(self.t1.data + self.t2.data)
+        data = Tensor(self.t1.data + self.t2.data, require_grad=True)
         self.next_ctx = [self.t1.grad_ctx, self.t2.grad_ctx]
         data.grad_ctx = self
         data.is_leaf = False
         return data
     
     def backward(self, grad: float) -> None:
-        self.next_ctx[0].backward(grad)
-        self.next_ctx[1].backward(grad)
+        if self.t1.require_grad:
+            self.next_ctx[0].backward(grad)
+        if self.t2.require_grad:
+            self.next_ctx[1].backward(grad)
+
+class SubContext(GradContext):
+    def __init__(self, t1: Tensor, t2: Tensor) -> None:
+        super().__init__([t1, t2])
+        self.t1 = t1
+        self.t2 = t2
+
+    def forward(self) -> Tensor:
+        data = Tensor(self.t1.data - self.t2.data, require_grad=True)
+        self.next_ctx = [self.t1.grad_ctx, self.t2.grad_ctx]
+        data.grad_ctx = self
+        data.is_leaf = False
+        return data
+    
+    def backward(self, grad: float) -> None:
+        if self.t1.require_grad:
+            self.next_ctx[0].backward(grad)
+        if self.t2.require_grad:
+            self.next_ctx[1].backward(-grad)
 
 class MulContext(GradContext):
     def __init__(self, t1: Tensor, t2: Tensor) -> None:
@@ -110,15 +132,17 @@ class MulContext(GradContext):
         self.t2 = t2
     
     def forward(self) -> Tensor:
-        data = Tensor(self.t1.data * self.t2.data)
+        data = Tensor(self.t1.data * self.t2.data, require_grad=True)
         self.next_ctx = [self.t1.grad_ctx, self.t2.grad_ctx]
         data.grad_ctx = self
         data.is_leaf = False
         return data
 
     def backward(self, grad: float) -> None:
-        self.next_ctx[0].backward(grad * self.t2.data)
-        self.next_ctx[1].backward(grad * self.t1.data)
+        if self.t1.require_grad:
+            self.next_ctx[0].backward(grad * self.t2.data)
+        if self.t2.require_grad:
+            self.next_ctx[1].backward(grad * self.t1.data)
     
 class PowContext(GradContext):
     def __init__(self, t1: Tensor, t2: Tensor) -> None:
@@ -127,12 +151,14 @@ class PowContext(GradContext):
         self.t2 = t2
 
     def forward (self) -> Tensor:
-        data = Tensor(self.t1.data ** self.t2.data)
+        data = Tensor(self.t1.data ** self.t2.data, require_grad=True)
         self.next_ctx = [self.t1.grad_ctx, self.t2.grad_ctx]
         data.grad_ctx = self
         data.is_leaf = False
         return data
     
     def backward(self, grad: float) -> None:
-        self.next_ctx[0].backward(self.t2.data * (grad ** (self.t2.data-1)))
-        self.next_ctx[1].backward(self.t1.data ** (grad))
+        if self.t1.require_grad:
+            self.next_ctx[0].backward(grad * self.t2.data * (self.t1.data ** (self.t2.data-1)))
+        if self.t2.require_grad:
+            self.next_ctx[1].backward(grad * self.t1.data ** (self.t2.data))
